@@ -6,6 +6,8 @@ import {
   DEFAULT_PANEL_LAYOUT,
   clampLeftSidebarSize,
   clampRightSidebarSize,
+  RIGHT_SIDEBAR_COLLAPSE_WINDOW_WIDTH,
+  LEFT_SIDEBAR_COLLAPSE_WINDOW_WIDTH,
 } from '../constants/layout';
 
 export interface UsePanelLayoutOptions {
@@ -47,6 +49,8 @@ export function usePanelLayout(opts: UsePanelLayoutOptions) {
   const rightSidebarSetCollapsedRef = useRef<((next: boolean) => void) | null>(null);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState<boolean>(false);
   const [autoRightSidebarBehavior, setAutoRightSidebarBehavior] = useState<boolean>(false);
+  const autoCollapsedRightRef = useRef<boolean>(false);
+  const autoCollapsedLeftRef = useRef<boolean>(false);
 
   const handlePanelLayout = useCallback((sizes: number[]) => {
     if (!Array.isArray(sizes) || sizes.length < 3) {
@@ -114,6 +118,11 @@ export function usePanelLayout(opts: UsePanelLayoutOptions) {
         return;
       }
 
+      // Reset auto-collapse flag on manual user toggle
+      if (!isMobile) {
+        autoCollapsedLeftRef.current = false;
+      }
+
       if (isMobile) {
         const currentSize = panel.getSize();
         if (typeof currentSize === 'number' && currentSize > 0) {
@@ -142,6 +151,7 @@ export function usePanelLayout(opts: UsePanelLayoutOptions) {
 
   const handleRightSidebarCollapsedChange = useCallback((collapsed: boolean) => {
     setRightSidebarCollapsed(collapsed);
+    autoCollapsedRightRef.current = false;
   }, []);
 
   // Handle left sidebar visibility when Editor mode changes
@@ -202,7 +212,10 @@ export function usePanelLayout(opts: UsePanelLayoutOptions) {
     if (shouldCollapse) {
       rightSidebarSetCollapsedRef.current?.(true);
     } else if (activeTask !== null) {
-      rightSidebarSetCollapsedRef.current?.(false);
+      // Don't expand right sidebar if window is too narrow
+      if (window.innerWidth >= RIGHT_SIDEBAR_COLLAPSE_WINDOW_WIDTH) {
+        rightSidebarSetCollapsedRef.current?.(false);
+      }
     }
   }, [autoRightSidebarBehavior, isInitialLoadComplete, showHomeView, selectedProject, activeTask]);
 
@@ -238,6 +251,65 @@ export function usePanelLayout(opts: UsePanelLayoutOptions) {
     leftPanel.expand();
     leftPanel.resize(targetLeft);
   }, [rightSidebarCollapsed]);
+
+  // Auto-collapse/expand sidebars based on window width
+  useEffect(() => {
+    let debounceTimer: ReturnType<typeof setTimeout>;
+
+    const handleResize = () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        const width = window.innerWidth;
+
+        // Right sidebar: collapse below threshold, restore above
+        if (width < RIGHT_SIDEBAR_COLLAPSE_WINDOW_WIDTH) {
+          if (!rightSidebarCollapsed) {
+            autoCollapsedRightRef.current = true;
+            setRightSidebarCollapsed(true);
+          }
+        } else if (autoCollapsedRightRef.current) {
+          autoCollapsedRightRef.current = false;
+          setRightSidebarCollapsed(false);
+        }
+
+        // Left sidebar: collapse below threshold, restore above
+        if (width < LEFT_SIDEBAR_COLLAPSE_WINDOW_WIDTH) {
+          if (leftSidebarOpenRef.current && !leftSidebarIsMobileRef.current) {
+            autoCollapsedLeftRef.current = true;
+            const panel = leftSidebarPanelRef.current;
+            if (panel && !panel.isCollapsed()) {
+              panel.collapse();
+            }
+            leftSidebarSetOpenRef.current?.(false);
+            leftSidebarOpenRef.current = false;
+          }
+        } else if (autoCollapsedLeftRef.current) {
+          autoCollapsedLeftRef.current = false;
+          if (!showEditorMode && !leftSidebarIsMobileRef.current) {
+            const panel = leftSidebarPanelRef.current;
+            if (panel) {
+              const target = clampLeftSidebarSize(
+                lastLeftSidebarSizeRef.current || DEFAULT_PANEL_LAYOUT[0]
+              );
+              panel.expand();
+              panel.resize(target);
+            }
+            leftSidebarSetOpenRef.current?.(true);
+            leftSidebarOpenRef.current = true;
+          }
+        }
+      }, 100);
+    };
+
+    // Run once on mount to handle starting at a small window size
+    handleResize();
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      clearTimeout(debounceTimer);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [rightSidebarCollapsed, showEditorMode]);
 
   return {
     defaultPanelLayout,
