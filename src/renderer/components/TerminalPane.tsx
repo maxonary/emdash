@@ -77,10 +77,20 @@ const TerminalPaneComponent = forwardRef<{ focus: () => void }, Props>(
     const [currentLinkUrl, setCurrentLinkUrl] = useState('');
 
     // Handle link clicks from terminal
-    const handleLinkClick = useCallback((url: string) => {
-      setCurrentLinkUrl(url);
-      setLinkModalOpen(true);
-    }, []);
+    // Cmd+Click (macOS) or Ctrl+Click opens directly; regular click shows confirmation modal
+    const handleLinkClick = useCallback(
+      (url: string, modifiers: { metaKey: boolean; ctrlKey: boolean }) => {
+        if (modifiers.metaKey || modifiers.ctrlKey) {
+          window.electronAPI.openExternal(url).catch((error) => {
+            log.warn('Failed to open external link', { url, error });
+          });
+          return;
+        }
+        setCurrentLinkUrl(url);
+        setLinkModalOpen(true);
+      },
+      []
+    );
 
     // Handle confirming link open
     const handleLinkConfirm = useCallback(() => {
