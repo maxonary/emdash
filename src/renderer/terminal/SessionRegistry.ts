@@ -22,7 +22,7 @@ interface AttachOptions {
   initialPrompt?: string;
   mapShiftEnterToCtrlJ?: boolean;
   disableSnapshots?: boolean;
-  onLinkClick?: (url: string) => void;
+  onLinkClick?: (url: string, modifiers: { metaKey: boolean; ctrlKey: boolean }) => void;
 }
 
 class SessionRegistry {

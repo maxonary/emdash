@@ -42,7 +42,7 @@ export interface TerminalSessionOptions {
   initialPrompt?: string;
   mapShiftEnterToCtrlJ?: boolean;
   disableSnapshots?: boolean;
-  onLinkClick?: (url: string) => void;
+  onLinkClick?: (url: string, modifiers: { metaKey: boolean; ctrlKey: boolean }) => void;
 }
 
 type CleanupFn = () => void;
@@ -135,7 +135,7 @@ export class TerminalSessionManager {
 
       // Call the custom link handler if provided, otherwise use default behavior
       if (options.onLinkClick) {
-        options.onLinkClick(uri);
+        options.onLinkClick(uri, { metaKey: event.metaKey, ctrlKey: event.ctrlKey });
       } else {
         // Fallback to opening directly via electronAPI
         window.electronAPI.openExternal(uri).catch((error) => {
