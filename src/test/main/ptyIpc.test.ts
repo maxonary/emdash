@@ -9,6 +9,7 @@ type ExitPayload = {
 type MockProc = {
   onData: (cb: (data: string) => void) => void;
   onExit: (cb: (payload: ExitPayload) => void) => void;
+  emitData: (data: string) => void;
   emitExit: (exitCode: number | null | undefined, signal?: number) => void;
 };
 
@@ -19,13 +20,21 @@ const ptys = new Map<string, MockProc>();
 const notificationCtor = vi.fn();
 const notificationShow = vi.fn();
 const telemetryCaptureMock = vi.fn();
+const windowSendMock = vi.fn();
 
 function createMockProc(): MockProc {
+  let dataHandler: ((data: string) => void) | null = null;
   let exitHandler: ((payload: ExitPayload) => void) | null = null;
   return {
-    onData: vi.fn(),
+    onData: (cb) => {
+      dataHandler = cb;
+    },
     onExit: (cb) => {
       exitHandler = cb;
+    },
+    emitData: (data) => {
+      if (!dataHandler) return;
+      dataHandler(data);
     },
     emitExit: (exitCode, signal) => {
       if (!exitHandler) return;
@@ -46,7 +55,7 @@ const killPtyMock = vi.fn((id: string) => {
 const getAllWindowsMock = vi.fn(() => [
   {
     isFocused: () => false,
-    webContents: { isDestroyed: () => false, send: vi.fn() },
+    webContents: { isDestroyed: () => false, send: windowSendMock },
   },
 ]);
 
@@ -92,7 +101,10 @@ vi.mock('../../main/services/ptyManager', () => ({
   resizePty: vi.fn(),
   killPty: killPtyMock,
   getPty: getPtyMock,
+  getPtyKind: vi.fn(() => 'local'),
   startDirectPty: vi.fn(),
+  startSshPty: vi.fn(),
+  removePtyRecord: vi.fn(),
   setOnDirectCliExit: vi.fn(),
 }));
 
@@ -150,6 +162,7 @@ describe('ptyIpc notification lifecycle', () => {
     ipcOnHandlers.clear();
     appListeners.clear();
     ptys.clear();
+    windowSendMock.mockClear();
   });
 
   function createSender() {
@@ -208,5 +221,82 @@ describe('ptyIpc notification lifecycle', () => {
 
     expect(notificationCtor).toHaveBeenCalledTimes(1);
     expect(notificationShow).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows notification when agent is waiting for permission and only pings once until user input', async () => {
+    const { registerPtyIpc } = await import('../../main/services/ptyIpc');
+    registerPtyIpc();
+
+    const start = ipcHandleHandlers.get('pty:start');
+    const input = ipcOnHandlers.get('pty:input');
+    expect(start).toBeTypeOf('function');
+    expect(input).toBeTypeOf('function');
+
+    const id = makePtyId('codex', 'main', 'task-approval');
+    await start!(
+      { sender: createSender() },
+      { id, cwd: '/tmp/task', shell: 'codex', cols: 120, rows: 32 }
+    );
+
+    const proc = ptys.get(id);
+    expect(proc).toBeDefined();
+
+    proc!.emitData('Waiting for your approval to continue');
+    proc!.emitData('Waiting for your approval to continue');
+
+    expect(notificationCtor).toHaveBeenCalledTimes(1);
+    expect(notificationShow).toHaveBeenCalledTimes(1);
+
+    input!(null, { id, data: '\n' });
+    proc!.emitData('Waiting for your approval to continue');
+
+    expect(notificationCtor).toHaveBeenCalledTimes(2);
+    expect(notificationShow).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not notify for generic yes no prompts without approval language', async () => {
+    const { registerPtyIpc } = await import('../../main/services/ptyIpc');
+    registerPtyIpc();
+
+    const start = ipcHandleHandlers.get('pty:start');
+    expect(start).toBeTypeOf('function');
+
+    const id = makePtyId('codex', 'main', 'task-generic-confirm');
+    await start!(
+      { sender: createSender() },
+      { id, cwd: '/tmp/task', shell: 'codex', cols: 120, rows: 32 }
+    );
+
+    const proc = ptys.get(id);
+    expect(proc).toBeDefined();
+
+    proc!.emitData('Continue? [y/n]');
+
+    expect(notificationCtor).not.toHaveBeenCalled();
+    expect(notificationShow).not.toHaveBeenCalled();
+    expect(windowSendMock).not.toHaveBeenCalledWith('pty:approval-required', { id });
+  });
+
+  it('clears approval state when normal agent output resumes', async () => {
+    const { registerPtyIpc } = await import('../../main/services/ptyIpc');
+    registerPtyIpc();
+
+    const start = ipcHandleHandlers.get('pty:start');
+    expect(start).toBeTypeOf('function');
+
+    const id = makePtyId('codex', 'main', 'task-approval-clear');
+    await start!(
+      { sender: createSender() },
+      { id, cwd: '/tmp/task', shell: 'codex', cols: 120, rows: 32 }
+    );
+
+    const proc = ptys.get(id);
+    expect(proc).toBeDefined();
+
+    proc!.emitData('Waiting for your approval to continue');
+    proc!.emitData('Esc to interrupt');
+
+    expect(windowSendMock).toHaveBeenCalledWith('pty:approval-required', { id });
+    expect(windowSendMock).toHaveBeenCalledWith('pty:approval-cleared', { id });
   });
 });

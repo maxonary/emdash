@@ -76,6 +76,7 @@ export interface AppSettings {
   notifications?: {
     enabled: boolean;
     sound: boolean;
+    approvalRequired: boolean;
   };
   mcp?: {
     context7?: {
@@ -131,6 +132,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   notifications: {
     enabled: true,
     sound: true,
+    approvalRequired: false,
   },
   mcp: {
     context7: {
@@ -330,6 +332,7 @@ function normalizeSettings(input: AppSettings): AppSettings {
     notifications: {
       enabled: DEFAULT_SETTINGS.notifications!.enabled,
       sound: DEFAULT_SETTINGS.notifications!.sound,
+      approvalRequired: DEFAULT_SETTINGS.notifications!.approvalRequired,
     },
     mcp: {
       context7: {
@@ -365,6 +368,9 @@ function normalizeSettings(input: AppSettings): AppSettings {
   out.notifications = {
     enabled: Boolean(notif?.enabled ?? DEFAULT_SETTINGS.notifications!.enabled),
     sound: Boolean(notif?.sound ?? DEFAULT_SETTINGS.notifications!.sound),
+    approvalRequired: Boolean(
+      notif?.approvalRequired ?? DEFAULT_SETTINGS.notifications!.approvalRequired
+    ),
   };
 
   // MCP

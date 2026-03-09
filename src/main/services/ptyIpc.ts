@@ -42,6 +42,7 @@ type FinishCause = 'process_exit' | 'app_quit' | 'owner_destroyed' | 'manual_kil
 const ptyDataBuffers = new Map<string, string>();
 const ptyDataTimers = new Map<string, NodeJS.Timeout>();
 const PTY_DATA_FLUSH_MS = 16;
+const permissionPingedPtys = new Set<string>();
 
 // Guard IPC sends to prevent crashes when WebContents is destroyed
 function safeSendToOwner(id: string, channel: string, payload: unknown): boolean {
@@ -86,6 +87,93 @@ function bufferedSendPtyData(id: string, chunk: string): void {
     flushPtyData(id);
   }, PTY_DATA_FLUSH_MS);
   ptyDataTimers.set(id, t);
+}
+
+function broadcastToAllWindows(channel: string, payload: unknown): void {
+  try {
+    const windows = BrowserWindow.getAllWindows();
+    windows.forEach((w) => {
+      try {
+        if (!w.webContents.isDestroyed()) {
+          w.webContents.send(channel, payload);
+        }
+      } catch {}
+    });
+  } catch {}
+}
+
+function markPermissionWaiting(id: string): boolean {
+  if (permissionPingedPtys.has(id)) return false;
+  permissionPingedPtys.add(id);
+  broadcastToAllWindows('pty:approval-required', { id });
+  return true;
+}
+
+function clearPermissionWaiting(id: string): boolean {
+  if (!permissionPingedPtys.has(id)) return false;
+  permissionPingedPtys.delete(id);
+  broadcastToAllWindows('pty:approval-cleared', { id });
+  return true;
+}
+
+function stripAnsi(s: string): string {
+  return s
+    .replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
+    .replace(/\r/g, '')
+    .replace(/\x1b\][^\x07]*\x07/g, '');
+}
+
+function isPermissionPrompt(chunk: string): boolean {
+  const text = stripAnsi((chunk || '').toString());
+  if (!text) return false;
+
+  if (/waiting\s+for\s+(your\s+)?(approval|permission)/i.test(text)) return true;
+  if (/(need|needs|requires?)\s+(your\s+)?(approval|permission)/i.test(text)) return true;
+  if (/permission\s+required/i.test(text)) return true;
+  if (/approve\s+(this|the)\s+(action|command|tool|operation)/i.test(text)) return true;
+  if (/(allow|approve).*(continue|proceed|run|execute)/i.test(text)) return true;
+  if (/(allow|approve).*(\[y\/n\]|\[yes\/no\]|\(y\/n\)|yes\/no)/i.test(text)) return true;
+  if (/press\s+enter\s+to\s+(approve|continue|allow)/i.test(text)) return true;
+
+  return false;
+}
+
+function isPermissionClearedByOutput(chunk: string): boolean {
+  const text = stripAnsi((chunk || '').toString());
+  if (!text) return false;
+  if (isPermissionPrompt(text)) return false;
+
+  if (/Esc to interrupt/i.test(text)) return true;
+  if (/Responding to\b/i.test(text)) return true;
+  if (
+    /Executing|Running|Thinking|Working|Analyzing|Identifying|Inspecting|Summarizing|Refactoring|Applying|Updating|Generating|Scanning|Parsing|Checking/i.test(
+      text
+    )
+  )
+    return true;
+  if (/Ready|Awaiting input|Press Enter|Next command/i.test(text)) return true;
+  if (/Completed|Finished|Done\.|Task completed/i.test(text)) return true;
+  if (/\b\/(status|approvals|model)\b/i.test(text)) return true;
+  if (/send\s+\S*\s*newline|transcript|quit/i.test(text)) return true;
+
+  return false;
+}
+
+function maybePingPermissionRequest(id: string, chunk: string): void {
+  if (!isPermissionPrompt(chunk)) return;
+  if (!markPermissionWaiting(id)) return;
+
+  const providerId = ptyProviderMap.get(id) || parseProviderPty(id)?.providerId;
+  const providerName = providerId ? getProvider(providerId)?.name ?? providerId : 'Agent';
+  showApprovalRequiredNotification(providerName);
+}
+
+function handlePtyData(id: string, chunk: string): void {
+  bufferedSendPtyData(id, chunk);
+  if (permissionPingedPtys.has(id) && isPermissionClearedByOutput(chunk)) {
+    clearPermissionWaiting(id);
+  }
+  maybePingPermissionRequest(id, chunk);
 }
 
 function quoteShellArg(arg: string): string {
@@ -241,7 +329,7 @@ export function registerPtyIpc(): void {
       listeners.delete(id); // Clear old listener registration
       if (!listeners.has(id)) {
         proc.onData((data) => {
-          bufferedSendPtyData(id, data);
+          handlePtyData(id, data);
         });
 
         proc.onExit(({ exitCode, signal }) => {
@@ -322,7 +410,7 @@ export function registerPtyIpc(): void {
 
           if (!listeners.has(id)) {
             proc.onData((data) => {
-              bufferedSendPtyData(id, data);
+              handlePtyData(id, data);
             });
             proc.onExit(({ exitCode, signal }) => {
               flushPtyData(id);
@@ -440,7 +528,7 @@ export function registerPtyIpc(): void {
         // Attach data/exit listeners once per PTY id
         if (!listeners.has(id)) {
           proc.onData((data) => {
-            bufferedSendPtyData(id, data);
+            handlePtyData(id, data);
           });
 
           proc.onExit(({ exitCode, signal }) => {
@@ -535,6 +623,8 @@ export function registerPtyIpc(): void {
 
   ipcMain.on('pty:input', (_event, args: { id: string; data: string }) => {
     try {
+      // User interacted with this PTY; allow a future permission prompt to notify again.
+      clearPermissionWaiting(args.id);
       writePty(args.id, args.data);
 
       // Track prompts sent to agents (not shell terminals)
@@ -682,7 +772,7 @@ export function registerPtyIpc(): void {
 
           if (!listeners.has(id)) {
             proc.onData((data) => {
-              bufferedSendPtyData(id, data);
+              handlePtyData(id, data);
             });
             proc.onExit(({ exitCode, signal }) => {
               flushPtyData(id);
@@ -753,7 +843,7 @@ export function registerPtyIpc(): void {
 
         if (!listeners.has(id)) {
           proc.onData((data) => {
-            bufferedSendPtyData(id, data);
+            handlePtyData(id, data);
           });
 
           proc.onExit(({ exitCode, signal }) => {
@@ -868,6 +958,7 @@ function maybeMarkProviderFinish(
   signal: number | undefined,
   cause: FinishCause
 ) {
+  clearPermissionWaiting(id);
   if (finalizedPtys.has(id)) return;
   finalizedPtys.add(id);
 
@@ -908,15 +999,15 @@ function maybeMarkProviderFinish(
 
   if (cause === 'process_exit' && exitCode === 0) {
     const providerName = getProvider(providerId)?.name ?? providerId;
-    showCompletionNotification(providerName);
+    showAgentNotification(`${providerName} Task Complete`, 'Your agent has finished working');
   }
 }
 
 /**
- * Show a system notification for provider completion.
+ * Show a system notification for agent events.
  * Only shows if: notifications are enabled, supported, and app is not focused.
  */
-function showCompletionNotification(providerName: string) {
+function showAgentNotification(title: string, body: string) {
   try {
     const settings = getAppSettings();
 
@@ -928,14 +1019,20 @@ function showCompletionNotification(providerName: string) {
     if (anyFocused) return;
 
     const notification = new Notification({
-      title: `${providerName} Task Complete`,
-      body: 'Your agent has finished working',
+      title,
+      body,
       silent: !settings.notifications?.sound,
     });
     notification.show();
   } catch (error) {
-    log.warn('Failed to show completion notification', { error });
+    log.warn('Failed to show agent notification', { error });
   }
+}
+
+function showApprovalRequiredNotification(providerName: string) {
+  const settings = getAppSettings();
+  if (!settings.notifications?.approvalRequired) return;
+  showAgentNotification(`${providerName} Needs Approval`, 'Waiting for your permission to continue');
 }
 
 // Kill all PTYs on app shutdown to prevent crash loop

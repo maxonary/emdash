@@ -257,6 +257,7 @@ function sanitizeEventAndProps(event: TelemetryEvent, props: Record<string, any>
     'type',
     'enabled',
     'sound',
+    'approval_required',
     'app',
     'duration_ms',
     'session_duration_ms',

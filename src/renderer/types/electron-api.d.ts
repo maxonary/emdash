@@ -67,7 +67,7 @@ declare global {
           repository: { branchPrefix: string; pushOnCreate: boolean };
           projectPrep?: { autoInstallOnOpenInEditor: boolean };
           browserPreview?: { enabled: boolean; engine: 'chromium' };
-          notifications?: { enabled: boolean; sound: boolean };
+          notifications?: { enabled: boolean; sound: boolean; approvalRequired: boolean };
           mcp?: {
             context7?: {
               enabled: boolean;
@@ -148,7 +148,7 @@ declare global {
           repository: { branchPrefix?: string; pushOnCreate?: boolean };
           projectPrep: { autoInstallOnOpenInEditor?: boolean };
           browserPreview: { enabled?: boolean; engine?: 'chromium' };
-          notifications: { enabled?: boolean; sound?: boolean };
+          notifications: { enabled?: boolean; sound?: boolean; approvalRequired?: boolean };
           mcp: {
             context7?: {
               enabled?: boolean;
@@ -228,7 +228,7 @@ declare global {
           repository: { branchPrefix: string; pushOnCreate: boolean };
           projectPrep?: { autoInstallOnOpenInEditor: boolean };
           browserPreview?: { enabled: boolean; engine: 'chromium' };
-          notifications?: { enabled: boolean; sound: boolean };
+          notifications?: { enabled: boolean; sound: boolean; approvalRequired: boolean };
           mcp?: {
             context7?: {
               enabled: boolean;
@@ -349,6 +349,8 @@ declare global {
         listener: (info: { exitCode: number; signal?: number }) => void
       ) => () => void;
       onPtyStarted: (listener: (data: { id: string }) => void) => () => void;
+      onPtyApprovalRequired: (listener: (data: { id: string }) => void) => () => void;
+      onPtyApprovalCleared: (listener: (data: { id: string }) => void) => () => void;
       terminalGetTheme: () => Promise<{
         ok: boolean;
         config?: {
@@ -1315,6 +1317,8 @@ export interface ElectronAPI {
     listener: (info: { exitCode: number; signal?: number }) => void
   ) => () => void;
   onPtyStarted: (listener: (data: { id: string }) => void) => () => void;
+  onPtyApprovalRequired: (listener: (data: { id: string }) => void) => () => void;
+  onPtyApprovalCleared: (listener: (data: { id: string }) => void) => () => void;
 
   // Worktree management
   worktreeCreate: (args: {

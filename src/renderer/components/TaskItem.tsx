@@ -6,6 +6,7 @@ import { ChangesBadge } from './TaskChanges';
 import { Spinner } from './ui/spinner';
 import { usePrStatus } from '../hooks/usePrStatus';
 import { useTaskBusy } from '../hooks/useTaskBusy';
+import { useTaskApprovalPending } from '../hooks/useTaskApprovalPending';
 import PrPreviewTooltip from './PrPreviewTooltip';
 import { normalizeTaskName, MAX_TASK_NAME_LENGTH } from '../lib/taskNames';
 import {
@@ -54,6 +55,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({
   const { totalAdditions, totalDeletions, isLoading } = useTaskChanges(task.path, task.id);
   const { pr } = usePrStatus(task.path);
   const isRunning = useTaskBusy(task.id);
+  const isApprovalPending = useTaskApprovalPending(task.id);
 
   const [isDeleting, setIsDeleting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -117,11 +119,18 @@ export const TaskItem: React.FC<TaskItemProps> = ({
   const taskContent = (
     <div className="flex min-w-0 items-center justify-between">
       <div className="flex min-w-0 flex-1 items-center gap-2 py-1">
-        {isRunning || task.status === 'running' ? (
-          <Spinner size="sm" className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
-        ) : (
-          <GitBranch className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
-        )}
+        <span className="flex h-3 w-3 flex-shrink-0 items-center justify-center">
+          {isApprovalPending ? (
+            <span
+              className="h-[7px] w-[7px] rounded-full bg-red-600/75 dark:bg-red-400/75"
+              title="Waiting for approval"
+            />
+          ) : isRunning || task.status === 'running' ? (
+            <Spinner size="sm" className="h-3 w-3 text-muted-foreground" />
+          ) : (
+            <GitBranch className="h-3 w-3 text-muted-foreground" />
+          )}
+        </span>
         {isEditing ? (
           <input
             ref={inputRef}
@@ -135,10 +144,10 @@ export const TaskItem: React.FC<TaskItemProps> = ({
             onClick={stopPropagation}
           />
         ) : (
-          <>
+          <span className="flex min-w-0 items-center gap-2">
             {isPinned && <Pin className="h-3 w-3 flex-shrink-0 text-muted-foreground" />}
             <span className="block truncate text-xs font-medium text-foreground">{task.name}</span>
-          </>
+          </span>
         )}
         {showDirectBadge && task.useWorktree === false && (
           <span
