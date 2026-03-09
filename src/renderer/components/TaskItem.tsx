@@ -119,11 +119,18 @@ export const TaskItem: React.FC<TaskItemProps> = ({
   const taskContent = (
     <div className="flex min-w-0 items-center justify-between">
       <div className="flex min-w-0 flex-1 items-center gap-2 py-1">
-        {isRunning || task.status === 'running' ? (
-          <Spinner size="sm" className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
-        ) : (
-          <GitBranch className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
-        )}
+        <span className="flex h-3 w-3 flex-shrink-0 items-center justify-center">
+          {isApprovalPending ? (
+            <span
+              className="h-[7px] w-[7px] rounded-full bg-red-600/75 dark:bg-red-400/75"
+              title="Waiting for approval"
+            />
+          ) : isRunning || task.status === 'running' ? (
+            <Spinner size="sm" className="h-3 w-3 text-muted-foreground" />
+          ) : (
+            <GitBranch className="h-3 w-3 text-muted-foreground" />
+          )}
+        </span>
         {isEditing ? (
           <input
             ref={inputRef}
@@ -137,16 +144,10 @@ export const TaskItem: React.FC<TaskItemProps> = ({
             onClick={stopPropagation}
           />
         ) : (
-          <>
+          <span className="flex min-w-0 items-center gap-2">
             {isPinned && <Pin className="h-3 w-3 flex-shrink-0 text-muted-foreground" />}
-            {isApprovalPending && (
-              <span
-                className="h-2 w-2 flex-shrink-0 rounded-full bg-red-500"
-                title="Waiting for approval"
-              />
-            )}
             <span className="block truncate text-xs font-medium text-foreground">{task.name}</span>
-          </>
+          </span>
         )}
         {showDirectBadge && task.useWorktree === false && (
           <span
