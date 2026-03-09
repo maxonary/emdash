@@ -132,8 +132,29 @@ function isPermissionPrompt(chunk: string): boolean {
   if (/permission\s+required/i.test(text)) return true;
   if (/approve\s+(this|the)\s+(action|command|tool|operation)/i.test(text)) return true;
   if (/(allow|approve).*(continue|proceed|run|execute)/i.test(text)) return true;
-  if (/(continue|proceed).*(\[y\/n\]|\[yes\/no\]|\(y\/n\)|yes\/no)/i.test(text)) return true;
+  if (/(allow|approve).*(\[y\/n\]|\[yes\/no\]|\(y\/n\)|yes\/no)/i.test(text)) return true;
   if (/press\s+enter\s+to\s+(approve|continue|allow)/i.test(text)) return true;
+
+  return false;
+}
+
+function isPermissionClearedByOutput(chunk: string): boolean {
+  const text = stripAnsi((chunk || '').toString());
+  if (!text) return false;
+  if (isPermissionPrompt(text)) return false;
+
+  if (/Esc to interrupt/i.test(text)) return true;
+  if (/Responding to\b/i.test(text)) return true;
+  if (
+    /Executing|Running|Thinking|Working|Analyzing|Identifying|Inspecting|Summarizing|Refactoring|Applying|Updating|Generating|Scanning|Parsing|Checking/i.test(
+      text
+    )
+  )
+    return true;
+  if (/Ready|Awaiting input|Press Enter|Next command/i.test(text)) return true;
+  if (/Completed|Finished|Done\.|Task completed/i.test(text)) return true;
+  if (/\b\/(status|approvals|model)\b/i.test(text)) return true;
+  if (/send\s+\S*\s*newline|transcript|quit/i.test(text)) return true;
 
   return false;
 }
@@ -149,6 +170,9 @@ function maybePingPermissionRequest(id: string, chunk: string): void {
 
 function handlePtyData(id: string, chunk: string): void {
   bufferedSendPtyData(id, chunk);
+  if (permissionPingedPtys.has(id) && isPermissionClearedByOutput(chunk)) {
+    clearPermissionWaiting(id);
+  }
   maybePingPermissionRequest(id, chunk);
 }
 
