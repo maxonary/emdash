@@ -89,6 +89,33 @@ function bufferedSendPtyData(id: string, chunk: string): void {
   ptyDataTimers.set(id, t);
 }
 
+function broadcastToAllWindows(channel: string, payload: unknown): void {
+  try {
+    const windows = BrowserWindow.getAllWindows();
+    windows.forEach((w) => {
+      try {
+        if (!w.webContents.isDestroyed()) {
+          w.webContents.send(channel, payload);
+        }
+      } catch {}
+    });
+  } catch {}
+}
+
+function markPermissionWaiting(id: string): boolean {
+  if (permissionPingedPtys.has(id)) return false;
+  permissionPingedPtys.add(id);
+  broadcastToAllWindows('pty:approval-required', { id });
+  return true;
+}
+
+function clearPermissionWaiting(id: string): boolean {
+  if (!permissionPingedPtys.has(id)) return false;
+  permissionPingedPtys.delete(id);
+  broadcastToAllWindows('pty:approval-cleared', { id });
+  return true;
+}
+
 function stripAnsi(s: string): string {
   return s
     .replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
@@ -112,10 +139,9 @@ function isPermissionPrompt(chunk: string): boolean {
 }
 
 function maybePingPermissionRequest(id: string, chunk: string): void {
-  if (permissionPingedPtys.has(id)) return;
   if (!isPermissionPrompt(chunk)) return;
+  if (!markPermissionWaiting(id)) return;
 
-  permissionPingedPtys.add(id);
   const providerId = ptyProviderMap.get(id) || parseProviderPty(id)?.providerId;
   const providerName = providerId ? getProvider(providerId)?.name ?? providerId : 'Agent';
   showAgentNotification(`${providerName} Needs Approval`, 'Waiting for your permission to continue');
@@ -574,7 +600,7 @@ export function registerPtyIpc(): void {
   ipcMain.on('pty:input', (_event, args: { id: string; data: string }) => {
     try {
       // User interacted with this PTY; allow a future permission prompt to notify again.
-      permissionPingedPtys.delete(args.id);
+      clearPermissionWaiting(args.id);
       writePty(args.id, args.data);
 
       // Track prompts sent to agents (not shell terminals)
@@ -908,7 +934,7 @@ function maybeMarkProviderFinish(
   signal: number | undefined,
   cause: FinishCause
 ) {
-  permissionPingedPtys.delete(id);
+  clearPermissionWaiting(id);
   if (finalizedPtys.has(id)) return;
   finalizedPtys.add(id);
 

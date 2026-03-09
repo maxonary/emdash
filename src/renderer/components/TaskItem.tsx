@@ -6,6 +6,7 @@ import { ChangesBadge } from './TaskChanges';
 import { Spinner } from './ui/spinner';
 import { usePrStatus } from '../hooks/usePrStatus';
 import { useTaskBusy } from '../hooks/useTaskBusy';
+import { useTaskApprovalPending } from '../hooks/useTaskApprovalPending';
 import PrPreviewTooltip from './PrPreviewTooltip';
 import { normalizeTaskName, MAX_TASK_NAME_LENGTH } from '../lib/taskNames';
 import {
@@ -54,6 +55,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({
   const { totalAdditions, totalDeletions, isLoading } = useTaskChanges(task.path, task.id);
   const { pr } = usePrStatus(task.path);
   const isRunning = useTaskBusy(task.id);
+  const isApprovalPending = useTaskApprovalPending(task.id);
 
   const [isDeleting, setIsDeleting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -137,6 +139,12 @@ export const TaskItem: React.FC<TaskItemProps> = ({
         ) : (
           <>
             {isPinned && <Pin className="h-3 w-3 flex-shrink-0 text-muted-foreground" />}
+            {isApprovalPending && (
+              <span
+                className="h-2 w-2 flex-shrink-0 rounded-full bg-red-500"
+                title="Waiting for approval"
+              />
+            )}
             <span className="block truncate text-xs font-medium text-foreground">{task.name}</span>
           </>
         )}
