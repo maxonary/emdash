@@ -272,6 +272,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   getFileDiff: (args: { taskPath: string; filePath: string }) =>
     ipcRenderer.invoke('git:get-file-diff', args),
+  getFileAtHeadBase64: (args: { taskPath: string; filePath: string }) =>
+    ipcRenderer.invoke('git:get-file-at-head-base64', args),
   stageFile: (args: { taskPath: string; filePath: string }) =>
     ipcRenderer.invoke('git:stage-file', args),
   stageAllFiles: (args: { taskPath: string }) => ipcRenderer.invoke('git:stage-all-files', args),

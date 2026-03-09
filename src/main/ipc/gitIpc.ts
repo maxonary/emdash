@@ -9,6 +9,7 @@ import { promisify } from 'util';
 import {
   getStatus as gitGetStatus,
   getFileDiff as gitGetFileDiff,
+  getFileAtHeadBase64,
   stageFile as gitStageFile,
   stageAllFiles as gitStageAllFiles,
   unstageFile as gitUnstageFile,
@@ -145,6 +146,22 @@ export function registerGitIpc() {
       return { success: false, error: error as string };
     }
   });
+
+  // Git: Read file from HEAD as base64 (for image diff previews)
+  ipcMain.handle(
+    'git:get-file-at-head-base64',
+    async (_, args: { taskPath: string; filePath: string }) => {
+      try {
+        const result = await getFileAtHeadBase64(args.taskPath, args.filePath);
+        if (!result) {
+          return { success: true, data: null };
+        }
+        return { success: true, data: result };
+      } catch (error) {
+        return { success: false, error: error as string };
+      }
+    }
+  );
 
   // Git: Stage file
   ipcMain.handle('git:stage-file', async (_, args: { taskPath: string; filePath: string }) => {

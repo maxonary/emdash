@@ -10,6 +10,7 @@ import {
   convertDiffLinesToMonacoFormat,
   getMonacoLanguageId,
   isBinaryFile,
+  isImageFile,
 } from '../lib/diffUtils';
 import { useToast } from '../hooks/use-toast';
 import { MONACO_DIFF_COLORS } from '../lib/monacoDiffColors';
@@ -58,6 +59,7 @@ export const AllChangesDiffModal: React.FC<AllChangesDiffModalProps> = ({
   const { toast } = useToast();
   const { effectiveTheme } = useTheme();
   const [fileData, setFileData] = useState<Map<string, FileDiffData>>(new Map());
+  const [imageDataMap, setImageDataMap] = useState<Map<string, { originalUrl: string | null; modifiedUrl: string | null; status: string; loading: boolean }>>(new Map());
   const [copiedFile, setCopiedFile] = useState<string | null>(null);
   const isDark = effectiveTheme === 'dark' || effectiveTheme === 'dark-black';
   const editorRefs = useRef<Map<string, monaco.editor.IStandaloneDiffEditor>>(new Map());
@@ -146,6 +148,7 @@ export const AllChangesDiffModal: React.FC<AllChangesDiffModalProps> = ({
   useEffect(() => {
     if (!open || files.length === 0 || !resolvedTaskPath) {
       setFileData(new Map());
+      setImageDataMap(new Map());
       return;
     }
 
@@ -157,7 +160,51 @@ export const AllChangesDiffModal: React.FC<AllChangesDiffModalProps> = ({
       const totalLineChanges = file.additions + file.deletions;
       const isLargeByLineCount = totalLineChanges > LARGE_DIFF_LINE_THRESHOLD;
 
-      // Skip binary files
+      // Handle image files with visual preview
+      if (isImageFile(filePath)) {
+        setImageDataMap((prev) => {
+          const next = new Map(prev);
+          next.set(filePath, { originalUrl: null, modifiedUrl: null, status: file.status, loading: true });
+          return next;
+        });
+
+        try {
+          let modifiedUrl: string | null = null;
+          let originalUrl: string | null = null;
+
+          if (file.status !== 'deleted') {
+            const imgRes = await window.electronAPI.fsReadImage(resolvedTaskPath, filePath);
+            if (imgRes?.success && imgRes.dataUrl) modifiedUrl = imgRes.dataUrl;
+          }
+
+          if (file.status !== 'added') {
+            const headRes = await window.electronAPI.getFileAtHeadBase64({ taskPath: resolvedTaskPath, filePath });
+            if (headRes?.success && headRes.data) {
+              const ext = filePath.split('.').pop()?.toLowerCase() || '';
+              let mime = 'image/' + ext;
+              if (ext === 'jpg' || ext === 'jpeg') mime = 'image/jpeg';
+              else if (ext === 'svg') mime = 'image/svg+xml';
+              else if (ext === 'tiff' || ext === 'tif') mime = 'image/tiff';
+              originalUrl = `data:${mime};base64,${headRes.data.base64}`;
+            }
+          }
+
+          setImageDataMap((prev) => {
+            const next = new Map(prev);
+            next.set(filePath, { originalUrl, modifiedUrl, status: file.status, loading: false });
+            return next;
+          });
+        } catch {
+          setImageDataMap((prev) => {
+            const next = new Map(prev);
+            next.set(filePath, { originalUrl: null, modifiedUrl: null, status: file.status, loading: false });
+            return next;
+          });
+        }
+        return;
+      }
+
+      // Skip non-image binary files
       if (isBinaryFile(filePath)) {
         setFileData((prev) => {
           const next = new Map(prev);
@@ -168,7 +215,7 @@ export const AllChangesDiffModal: React.FC<AllChangesDiffModalProps> = ({
             language: 'plaintext',
             loading: false,
             error: 'Binary file - diff not available',
-            expanded: true, // Default expanded
+            expanded: true,
             isLargeFile: false,
           });
           return next;
@@ -786,9 +833,11 @@ export const AllChangesDiffModal: React.FC<AllChangesDiffModalProps> = ({
                   <div className="divide-y divide-gray-100 pr-[7px] dark:divide-gray-800/50">
                     {files.map((file, index) => {
                       const data = fileData.get(file.path);
-                      const isExpanded = data?.expanded ?? true; // Default to expanded
-                      const isLoading = data?.loading ?? true;
-                      const hasError = data?.error !== null;
+                      const imgData = imageDataMap.get(file.path);
+                      const isImage = isImageFile(file.path);
+                      const isExpanded = isImage ? true : (data?.expanded ?? true);
+                      const isLoading = isImage ? (imgData?.loading ?? true) : (data?.loading ?? true);
+                      const hasError = isImage ? false : (data?.error !== null);
                       const isDirty = data ? data.modified !== data.initialModified : false;
                       const isSaving = data?.saving ?? false;
 
@@ -919,6 +968,41 @@ export const AllChangesDiffModal: React.FC<AllChangesDiffModalProps> = ({
                                       <FileText className="h-4 w-4" />
                                       Open in single-file diff
                                     </button>
+                                  )}
+                                </div>
+                              ) : isImage && imgData && !imgData.loading ? (
+                                <div className="flex items-center justify-center gap-8 p-8">
+                                  {imgData.status === 'modified' && imgData.originalUrl && imgData.modifiedUrl ? (
+                                    <>
+                                      <div className="flex flex-col items-center gap-2">
+                                        <span className="text-xs font-medium text-red-500 dark:text-red-400">Original</span>
+                                        <div className="rounded-lg border border-red-300/40 bg-red-50/30 p-2 dark:border-red-500/20 dark:bg-red-950/20">
+                                          <img src={imgData.originalUrl} alt="Original" className="max-h-[400px] max-w-[35vw] object-contain" />
+                                        </div>
+                                      </div>
+                                      <div className="flex flex-col items-center gap-2">
+                                        <span className="text-xs font-medium text-emerald-500 dark:text-emerald-400">Modified</span>
+                                        <div className="rounded-lg border border-emerald-300/40 bg-emerald-50/30 p-2 dark:border-emerald-500/20 dark:bg-emerald-950/20">
+                                          <img src={imgData.modifiedUrl} alt="Modified" className="max-h-[400px] max-w-[35vw] object-contain" />
+                                        </div>
+                                      </div>
+                                    </>
+                                  ) : imgData.status === 'added' && imgData.modifiedUrl ? (
+                                    <div className="flex flex-col items-center gap-2">
+                                      <span className="text-xs font-medium text-emerald-500 dark:text-emerald-400">Added</span>
+                                      <div className="rounded-lg border border-emerald-300/40 bg-emerald-50/30 p-2 dark:border-emerald-500/20 dark:bg-emerald-950/20">
+                                        <img src={imgData.modifiedUrl} alt="Added" className="max-h-[400px] max-w-[70vw] object-contain" />
+                                      </div>
+                                    </div>
+                                  ) : imgData.status === 'deleted' && imgData.originalUrl ? (
+                                    <div className="flex flex-col items-center gap-2">
+                                      <span className="text-xs font-medium text-red-500 dark:text-red-400">Deleted</span>
+                                      <div className="rounded-lg border border-red-300/40 bg-red-50/30 p-2 dark:border-red-500/20 dark:bg-red-950/20">
+                                        <img src={imgData.originalUrl} alt="Deleted" className="max-h-[400px] max-w-[70vw] object-contain" />
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <span className="text-sm text-muted-foreground">Image preview not available</span>
                                   )}
                                 </div>
                               ) : data ? (

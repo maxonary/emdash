@@ -562,6 +562,11 @@ declare global {
         };
         error?: string;
       }>;
+      getFileAtHeadBase64: (args: { taskPath: string; filePath: string }) => Promise<{
+        success: boolean;
+        data?: { base64: string; size: number } | null;
+        error?: string;
+      }>;
       stageFile: (args: { taskPath: string; filePath: string }) => Promise<{
         success: boolean;
         error?: string;
