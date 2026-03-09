@@ -67,7 +67,7 @@ declare global {
           repository: { branchPrefix: string; pushOnCreate: boolean };
           projectPrep?: { autoInstallOnOpenInEditor: boolean };
           browserPreview?: { enabled: boolean; engine: 'chromium' };
-          notifications?: { enabled: boolean; sound: boolean };
+          notifications?: { enabled: boolean; sound: boolean; approvalRequired: boolean };
           mcp?: {
             context7?: {
               enabled: boolean;
@@ -148,7 +148,7 @@ declare global {
           repository: { branchPrefix?: string; pushOnCreate?: boolean };
           projectPrep: { autoInstallOnOpenInEditor?: boolean };
           browserPreview: { enabled?: boolean; engine?: 'chromium' };
-          notifications: { enabled?: boolean; sound?: boolean };
+          notifications: { enabled?: boolean; sound?: boolean; approvalRequired?: boolean };
           mcp: {
             context7?: {
               enabled?: boolean;
@@ -228,7 +228,7 @@ declare global {
           repository: { branchPrefix: string; pushOnCreate: boolean };
           projectPrep?: { autoInstallOnOpenInEditor: boolean };
           browserPreview?: { enabled: boolean; engine: 'chromium' };
-          notifications?: { enabled: boolean; sound: boolean };
+          notifications?: { enabled: boolean; sound: boolean; approvalRequired: boolean };
           mcp?: {
             context7?: {
               enabled: boolean;

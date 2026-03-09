@@ -165,7 +165,7 @@ function maybePingPermissionRequest(id: string, chunk: string): void {
 
   const providerId = ptyProviderMap.get(id) || parseProviderPty(id)?.providerId;
   const providerName = providerId ? getProvider(providerId)?.name ?? providerId : 'Agent';
-  showAgentNotification(`${providerName} Needs Approval`, 'Waiting for your permission to continue');
+  showApprovalRequiredNotification(providerName);
 }
 
 function handlePtyData(id: string, chunk: string): void {
@@ -1027,6 +1027,12 @@ function showAgentNotification(title: string, body: string) {
   } catch (error) {
     log.warn('Failed to show agent notification', { error });
   }
+}
+
+function showApprovalRequiredNotification(providerName: string) {
+  const settings = getAppSettings();
+  if (!settings.notifications?.approvalRequired) return;
+  showAgentNotification(`${providerName} Needs Approval`, 'Waiting for your permission to continue');
 }
 
 // Kill all PTYs on app shutdown to prevent crash loop
