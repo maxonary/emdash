@@ -12,6 +12,7 @@ import {
   convertDiffLinesToMonacoFormat,
   getMonacoLanguageId,
   isBinaryFile,
+  isImageFile,
 } from '../lib/diffUtils';
 import { MONACO_DIFF_COLORS } from '../lib/monacoDiffColors';
 import { configureDiffEditorDiagnostics, resetDiagnosticOptions } from '../lib/monacoDiffConfig';
@@ -79,6 +80,14 @@ export const ChangesDiffModal: React.FC<ChangesDiffModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // Image preview state
+  const [imageData, setImageData] = useState<{
+    originalUrl: string | null;
+    modifiedUrl: string | null;
+    status: 'added' | 'modified' | 'deleted';
+    loading: boolean;
+  } | null>(null);
+
   // Close on escape key
   useEffect(() => {
     if (!open) return;
@@ -122,7 +131,49 @@ export const ChangesDiffModal: React.FC<ChangesDiffModalProps> = ({
       const filePath = selectedFile.path;
       const language = getMonacoLanguageId(filePath);
 
-      // Skip binary files
+      // Handle image files with visual preview
+      if (isImageFile(filePath)) {
+        setFileData(null);
+        setModifiedDraft('');
+        setImageData({ originalUrl: null, modifiedUrl: null, status: selectedFile.status as 'added' | 'modified' | 'deleted', loading: true });
+
+        try {
+          let modifiedUrl: string | null = null;
+          let originalUrl: string | null = null;
+
+          // Get current version (unless deleted)
+          if (selectedFile.status !== 'deleted') {
+            const imgRes = await window.electronAPI.fsReadImage(safeTaskPath, filePath);
+            if (imgRes?.success && imgRes.dataUrl) {
+              modifiedUrl = imgRes.dataUrl;
+            }
+          }
+
+          // Get HEAD version (unless newly added)
+          if (selectedFile.status !== 'added') {
+            const headRes = await window.electronAPI.getFileAtHeadBase64({ taskPath: safeTaskPath, filePath });
+            if (headRes?.success && headRes.data) {
+              const ext = filePath.split('.').pop()?.toLowerCase() || '';
+              let mime = 'image/' + ext;
+              if (ext === 'jpg' || ext === 'jpeg') mime = 'image/jpeg';
+              else if (ext === 'svg') mime = 'image/svg+xml';
+              else if (ext === 'tiff' || ext === 'tif') mime = 'image/tiff';
+              originalUrl = `data:${mime};base64,${headRes.data.base64}`;
+            }
+          }
+
+          if (!cancelled) {
+            setImageData({ originalUrl, modifiedUrl, status: selectedFile.status as 'added' | 'modified' | 'deleted', loading: false });
+          }
+        } catch {
+          if (!cancelled) {
+            setImageData({ originalUrl: null, modifiedUrl: null, status: selectedFile.status as 'added' | 'modified' | 'deleted', loading: false });
+          }
+        }
+        return;
+      }
+
+      // Skip non-image binary files
       if (isBinaryFile(filePath)) {
         setFileData({
           original: '',
@@ -137,6 +188,7 @@ export const ChangesDiffModal: React.FC<ChangesDiffModalProps> = ({
       }
 
       // Set loading state
+      setImageData(null);
       setFileData({
         original: '',
         modified: '',
@@ -746,12 +798,47 @@ export const ChangesDiffModal: React.FC<ChangesDiffModalProps> = ({
               </div>
 
               <div className="relative flex-1 overflow-hidden">
-                {fileData?.loading ? (
+                {imageData?.loading || fileData?.loading ? (
                   <div className="flex h-full items-center justify-center text-muted-foreground">
                     <div className="flex items-center gap-2">
                       <div className="h-4 w-4 animate-spin rounded-full border-2 border-border border-t-gray-600 dark:border-border dark:border-t-gray-400"></div>
-                      <span className="text-sm">Loading diff...</span>
+                      <span className="text-sm">{imageData?.loading ? 'Loading image...' : 'Loading diff...'}</span>
                     </div>
+                  </div>
+                ) : imageData && !imageData.loading ? (
+                  <div className="flex h-full flex-col items-center justify-center gap-6 overflow-auto p-8">
+                    {imageData.status === 'modified' && imageData.originalUrl && imageData.modifiedUrl ? (
+                      <div className="flex w-full items-start justify-center gap-8">
+                        <div className="flex flex-col items-center gap-2">
+                          <span className="text-xs font-medium text-red-500 dark:text-red-400">Original</span>
+                          <div className="rounded-lg border border-red-300/40 bg-red-50/30 p-2 dark:border-red-500/20 dark:bg-red-950/20">
+                            <img src={imageData.originalUrl} alt="Original" className="max-h-[60vh] max-w-[40vw] object-contain" />
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-center gap-2">
+                          <span className="text-xs font-medium text-emerald-500 dark:text-emerald-400">Modified</span>
+                          <div className="rounded-lg border border-emerald-300/40 bg-emerald-50/30 p-2 dark:border-emerald-500/20 dark:bg-emerald-950/20">
+                            <img src={imageData.modifiedUrl} alt="Modified" className="max-h-[60vh] max-w-[40vw] object-contain" />
+                          </div>
+                        </div>
+                      </div>
+                    ) : imageData.status === 'added' && imageData.modifiedUrl ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <span className="text-xs font-medium text-emerald-500 dark:text-emerald-400">Added</span>
+                        <div className="rounded-lg border border-emerald-300/40 bg-emerald-50/30 p-2 dark:border-emerald-500/20 dark:bg-emerald-950/20">
+                          <img src={imageData.modifiedUrl} alt="Added" className="max-h-[65vh] max-w-[70vw] object-contain" />
+                        </div>
+                      </div>
+                    ) : imageData.status === 'deleted' && imageData.originalUrl ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <span className="text-xs font-medium text-red-500 dark:text-red-400">Deleted</span>
+                        <div className="rounded-lg border border-red-300/40 bg-red-50/30 p-2 dark:border-red-500/20 dark:bg-red-950/20">
+                          <img src={imageData.originalUrl} alt="Deleted" className="max-h-[65vh] max-w-[70vw] object-contain" />
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">Image preview not available</span>
+                    )}
                   </div>
                 ) : fileData?.error ? (
                   <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-muted-foreground">

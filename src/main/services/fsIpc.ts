@@ -67,6 +67,9 @@ const ALLOWED_IMAGE_EXTENSIONS = new Set<string>([
   '.webp',
   '.bmp',
   '.svg',
+  '.tiff',
+  '.tif',
+  '.ico',
 ]);
 const DEFAULT_ATTACHMENTS_SUBDIR = 'attachments' as const;
 

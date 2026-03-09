@@ -307,3 +307,26 @@ export async function getFileDiff(
     }
   }
 }
+
+/**
+ * Read a file from HEAD as base64 (for image diff previews).
+ * Returns null if the file doesn't exist at HEAD.
+ */
+export async function getFileAtHeadBase64(
+  taskPath: string,
+  filePath: string
+): Promise<{ base64: string; size: number } | null> {
+  try {
+    const { stdout } = await execFileAsync('git', ['show', `HEAD:${filePath}`], {
+      cwd: taskPath,
+      encoding: 'buffer',
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    return {
+      base64: (stdout as unknown as Buffer).toString('base64'),
+      size: (stdout as unknown as Buffer).length,
+    };
+  } catch {
+    return null;
+  }
+}

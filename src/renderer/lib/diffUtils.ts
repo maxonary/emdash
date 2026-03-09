@@ -155,6 +155,19 @@ export function getMonacoLanguageId(filePath: string): string {
 }
 
 /**
+ * Image extensions that can be previewed in the diff viewer
+ */
+const imageExtensions = ['png', 'jpg', 'jpeg', 'gif', 'ico', 'webp', 'bmp', 'tiff', 'tif', 'svg'];
+
+/**
+ * Check if a file is an image that can be previewed
+ */
+export function isImageFile(filePath: string): boolean {
+  const ext = filePath.split('.').pop()?.toLowerCase() || '';
+  return imageExtensions.includes(ext);
+}
+
+/**
  * Check if a file is likely binary based on extension
  */
 export function isBinaryFile(filePath: string): boolean {
