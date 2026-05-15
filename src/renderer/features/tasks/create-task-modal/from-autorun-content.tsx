@@ -15,11 +15,7 @@ import { useIssueSearch } from '@renderer/features/tasks/components/issue-select
 import { Checkbox } from '@renderer/lib/ui/checkbox';
 import { Field, FieldLabel } from '@renderer/lib/ui/field';
 import { Input } from '@renderer/lib/ui/input';
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from '@renderer/lib/ui/input-group';
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@renderer/lib/ui/input-group';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@renderer/lib/ui/select';
 import { Switch } from '@renderer/lib/ui/switch';
 import { Textarea } from '@renderer/lib/ui/textarea';
@@ -38,7 +34,6 @@ interface FromAutorunContentProps {
   projectPath?: string;
   isUnborn?: boolean;
   initialConversation: InitialConversationState;
-  connectionId?: string;
 }
 
 export const FromAutorunContent = observer(function FromAutorunContent({
@@ -49,7 +44,6 @@ export const FromAutorunContent = observer(function FromAutorunContent({
   projectPath = '',
   isUnborn,
   initialConversation,
-  connectionId,
 }: FromAutorunContentProps) {
   const {
     issues,
@@ -238,7 +232,7 @@ export const FromAutorunContent = observer(function FromAutorunContent({
         />
       </Field>
 
-      <InitialConversationField state={initialConversation} connectionId={connectionId} />
+      <InitialConversationField state={initialConversation} />
     </div>
   );
 });

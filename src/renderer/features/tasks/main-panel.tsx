@@ -1,13 +1,17 @@
 import { Eye, Loader2, MessageSquare, Pencil } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
-import { Activity, useEffect, useRef } from 'react';
+import { Activity, useEffect, useRef, type ComponentProps } from 'react';
 import { usePanelRef } from 'react-resizable-panels';
 import {
   getTaskStore,
   taskErrorMessage,
   taskViewKind,
 } from '@renderer/features/tasks/stores/task-selectors';
-import { useProvisionedTask, useTaskViewContext } from '@renderer/features/tasks/task-view-context';
+import {
+  useTaskViewContext,
+  useWorkspaceViewModel,
+} from '@renderer/features/tasks/task-view-context';
+import { PreviewSourceToggle } from '@renderer/lib/editor/preview-source-toggle';
 import { panelDragStore } from '@renderer/lib/layout/panel-drag-store';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Button } from '@renderer/lib/ui/button';
@@ -22,6 +26,7 @@ import { MarkdownEditorPanel } from './editor/markdown-editor-panel';
 import { TerminalsPanel } from './terminals/terminal-panel';
 import { TaskSidebar } from './view/task-sidebar';
 import { UnifiedMainTabBar } from './view/unified-main-tab-bar';
+import { WorkspaceResolutionView } from './workspace-resolution-view';
 
 export const TaskMainPanel = observer(function TaskMainPanel() {
   const { projectId, taskId } = useTaskViewContext();
@@ -100,16 +105,55 @@ export const TaskMainPanel = observer(function TaskMainPanel() {
     return null;
   }
 
+  if (kind === 'needs-resolution') {
+    return <WorkspaceResolutionView />;
+  }
+
   return <ReadyTaskMainPanel />;
 });
 
 const SIDEBAR_COLLAPSED_SIZE = '0px';
 
+/**
+ * ResizableHandle wrapper that flips panelDragStore on/off during a drag so
+ * embedded terminals can suppress fits while the user is dragging.
+ */
+function DraggableResizeHandle(props: ComponentProps<typeof ResizableHandle>) {
+  const draggingRef = useRef(false);
+  const stop = () => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    panelDragStore.setDragging(false);
+  };
+  return (
+    <ResizableHandle
+      {...props}
+      onPointerDown={(e) => {
+        props.onPointerDown?.(e);
+        e.currentTarget.setPointerCapture(e.pointerId);
+        if (!draggingRef.current) {
+          draggingRef.current = true;
+          panelDragStore.setDragging(true);
+        }
+      }}
+      onPointerUp={(e) => {
+        props.onPointerUp?.(e);
+        stop();
+      }}
+      onPointerCancel={(e) => {
+        props.onPointerCancel?.(e);
+        stop();
+      }}
+    />
+  );
+}
+
 const ReadyTaskMainPanel = observer(function ReadyTaskMainPanel() {
-  const { taskView } = useProvisionedTask();
+  const taskView = useWorkspaceViewModel();
   const sidebarPanelRef = usePanelRef();
 
   useEffect(() => {
+    panelDragStore.suppressFor(140);
     if (taskView.isSidebarCollapsed) {
       sidebarPanelRef.current?.collapse();
     } else {
@@ -122,7 +166,7 @@ const ReadyTaskMainPanel = observer(function ReadyTaskMainPanel() {
       <ResizablePanel id="task-main-area">
         <TaskMainColumn />
       </ResizablePanel>
-      <ResizableHandle />
+      <DraggableResizeHandle />
       <ResizablePanel
         id="task-sidebar"
         panelRef={sidebarPanelRef}
@@ -142,11 +186,11 @@ const ReadyTaskMainPanel = observer(function ReadyTaskMainPanel() {
 });
 
 const TaskMainColumn = observer(function TaskMainColumn() {
-  const { taskView } = useProvisionedTask();
+  const taskView = useWorkspaceViewModel();
   const bottomPanelRef = usePanelRef();
-  const draggingRef = useRef(false);
 
   useEffect(() => {
+    panelDragStore.suppressFor(140);
     if (taskView.isTerminalDrawerOpen) {
       bottomPanelRef.current?.expand();
     } else {
@@ -159,28 +203,7 @@ const TaskMainColumn = observer(function TaskMainColumn() {
       <ResizablePanel id="task-main-content" minSize="30%">
         <UnifiedMainContent />
       </ResizablePanel>
-      <ResizableHandle
-        onPointerDown={(e) => {
-          e.currentTarget.setPointerCapture(e.pointerId);
-          if (!draggingRef.current) {
-            draggingRef.current = true;
-            panelDragStore.setDragging(true);
-          }
-        }}
-        onPointerUp={() => {
-          if (draggingRef.current) {
-            draggingRef.current = false;
-            panelDragStore.setDragging(false);
-          }
-        }}
-        onPointerCancel={() => {
-          if (draggingRef.current) {
-            draggingRef.current = false;
-            panelDragStore.setDragging(false);
-          }
-        }}
-        className={taskView.isTerminalDrawerOpen ? 'flex' : 'hidden'}
-      />
+      <DraggableResizeHandle className={taskView.isTerminalDrawerOpen ? 'flex' : 'hidden'} />
       <ResizablePanel
         id="task-terminal-drawer"
         panelRef={bottomPanelRef}
@@ -188,7 +211,10 @@ const TaskMainColumn = observer(function TaskMainColumn() {
         collapsedSize="0%"
         defaultSize="25%"
         minSize="15%"
-        onResize={() => taskView.setTerminalDrawerOpen(!bottomPanelRef.current?.isCollapsed())}
+        onResize={(_panelSize, _id, prevPanelSize) => {
+          if (prevPanelSize === undefined) return;
+          taskView.setTerminalDrawerOpen(!bottomPanelRef.current?.isCollapsed());
+        }}
       >
         <TerminalsPanel />
       </ResizablePanel>
@@ -198,7 +224,7 @@ const TaskMainColumn = observer(function TaskMainColumn() {
 
 const UnifiedMainContent = observer(function UnifiedMainContent() {
   const { projectId, taskId } = useTaskViewContext();
-  const { taskView } = useProvisionedTask();
+  const taskView = useWorkspaceViewModel();
   const { tabManager } = taskView;
   const { setEditorHost, triggerLayout } = useEditorContext();
   const showCreateConversationModal = useShowModal('createConversationModal');
@@ -254,6 +280,8 @@ const UnifiedMainContent = observer(function UnifiedMainContent() {
         />
         {/* SVG source toggle — floats over the Monaco host when editing an SVG file */}
         {renderer === 'monaco' && <SvgSourceToggleOverlay />}
+        {/* HTML source toggle — floats over the Monaco host when editing an HTML file */}
+        {renderer === 'monaco' && <HtmlSourceToggleOverlay />}
 
         <Activity mode={renderer === 'markdown' ? 'visible' : 'hidden'}>
           <MarkdownEditorPanel />
@@ -262,7 +290,7 @@ const UnifiedMainContent = observer(function UnifiedMainContent() {
           <DiffView />
         </Activity>
         <Activity mode={renderer === 'agents' ? 'visible' : 'hidden'}>
-          <ConversationsPanel hideTabBar />
+          <ConversationsPanel />
         </Activity>
         <Activity mode={renderer === 'other-file' ? 'visible' : 'hidden'}>
           <EditorMainPanel />
@@ -277,9 +305,9 @@ const UnifiedMainContent = observer(function UnifiedMainContent() {
  * Lets the user toggle back to the SVG preview renderer.
  */
 const SvgSourceToggleOverlay = observer(function SvgSourceToggleOverlay() {
-  const { taskView } = useProvisionedTask();
+  const taskView = useWorkspaceViewModel();
   const { tabManager } = taskView;
-  const activeTab = tabManager.activeFileTab;
+  const activeTab = tabManager.activeFileEntry;
 
   if (!activeTab || activeTab.renderer.kind !== 'svg-source') return null;
 
@@ -301,5 +329,28 @@ const SvgSourceToggleOverlay = observer(function SvgSourceToggleOverlay() {
         <Pencil className="h-3.5 w-3.5" />
       </ToggleGroupItem>
     </ToggleGroup>
+  );
+});
+
+/**
+ * Shown over the Monaco host when the active tab is an HTML file in source mode.
+ * Lets the user toggle back to the rendered HTML preview.
+ */
+const HtmlSourceToggleOverlay = observer(function HtmlSourceToggleOverlay() {
+  const taskView = useWorkspaceViewModel();
+  const { tabManager } = taskView;
+  const activeTab = tabManager.activeFileEntry;
+
+  if (!activeTab || activeTab.renderer.kind !== 'html-source') return null;
+
+  return (
+    <PreviewSourceToggle
+      activeMode="source"
+      onSwitch={(mode) => {
+        if (mode === 'preview') {
+          tabManager.updateRenderer(activeTab.path, () => ({ kind: 'html' }));
+        }
+      }}
+    />
   );
 });

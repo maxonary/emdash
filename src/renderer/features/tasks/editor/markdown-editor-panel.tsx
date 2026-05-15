@@ -3,7 +3,7 @@ import { autorun, reaction } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import type * as monacoNS from 'monaco-editor';
 import { useEffect, useRef } from 'react';
-import { useProvisionedTask } from '@renderer/features/tasks/task-view-context';
+import { useWorkspaceViewModel } from '@renderer/features/tasks/task-view-context';
 import { registerActiveCodeEditor } from '@renderer/lib/editor/activeCodeEditor';
 import { MarkdownEditorRenderer } from '@renderer/lib/editor/markdown-renderer';
 import { useTheme } from '@renderer/lib/hooks/useTheme';
@@ -26,8 +26,8 @@ import { ToggleGroup, ToggleGroupItem } from '@renderer/lib/ui/toggle-group';
  * for plain text/code files.
  */
 export const MarkdownEditorPanel = observer(function MarkdownEditorPanel() {
-  const { taskView } = useProvisionedTask();
-  const activeTab = taskView.tabManager.activeFileTab;
+  const taskView = useWorkspaceViewModel();
+  const activeTab = taskView.tabManager.activeFileEntry;
 
   if (!activeTab) return null;
 
@@ -49,8 +49,8 @@ interface MarkdownSourceEditorProps {
 const MarkdownSourceEditor = observer(function MarkdownSourceEditor({
   filePath,
 }: MarkdownSourceEditorProps) {
-  const { taskView } = useProvisionedTask();
-  const { editorView, tabManager } = taskView;
+  const taskView = useWorkspaceViewModel();
+  const { editorView } = taskView;
   const { effectiveTheme } = useTheme();
 
   const leaseBox = useMonacoLease(codeEditorPool);
@@ -87,7 +87,7 @@ const MarkdownSourceEditor = observer(function MarkdownSourceEditor({
                 if (filePath) void editorView.saveFile(filePath);
               },
               onSaveAll: () => {
-                void editorView.saveAllFiles(tabManager.openFilePaths);
+                void editorView.saveAllFiles();
               },
             });
           }
@@ -152,7 +152,7 @@ interface SourceToggleOverlayProps {
 }
 
 function SourceToggleOverlay({ filePath }: SourceToggleOverlayProps) {
-  const { taskView } = useProvisionedTask();
+  const taskView = useWorkspaceViewModel();
   const { tabManager } = taskView;
 
   return (

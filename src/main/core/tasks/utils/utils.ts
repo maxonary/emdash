@@ -25,9 +25,7 @@ export function mapTaskRowToTask(
     updatedAt: row.updatedAt,
     statusChangedAt: row.statusChangedAt,
     isPinned: row.isPinned === 1,
-    workspaceProvider: (row.workspaceProvider as 'byoi') ?? undefined,
     workspaceId: row.workspaceId ?? undefined,
-    workspaceProviderData: row.workspaceProviderData ?? undefined,
     autoCreatePr: row.autoCreatePr === 1,
   };
 }

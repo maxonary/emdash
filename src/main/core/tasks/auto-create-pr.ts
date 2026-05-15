@@ -37,7 +37,7 @@ async function handleAgentExit(event: AgentSessionExited): Promise<void> {
   const workspace = resolveWorkspace(event.projectId, workspaceId);
   if (!workspace) return;
 
-  const remoteName = await project.repository.getConfiguredRemote().catch(() => 'origin');
+  const remoteName = await project.repository.getPushRemote().catch(() => 'origin');
   const publishResult = await workspace.git.publishBranch(row.taskBranch, remoteName);
   if (!publishResult.success) {
     log.warn('auto-create-pr: publish branch failed', {

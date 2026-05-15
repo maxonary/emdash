@@ -8,7 +8,7 @@ import {
 } from '@dnd-kit/core';
 import { horizontalListSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable';
 import { CSS as DndCSS } from '@dnd-kit/utilities';
-import { Loader2, Plus, X } from 'lucide-react';
+import { FileSearch, Loader2, MessageSquarePlus, X } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useRef } from 'react';
 import { formatConversationTitleForDisplay } from '@renderer/features/tasks/conversations/conversation-title-utils';
@@ -17,21 +17,24 @@ import type {
   ResolvedConversationTab,
   ResolvedDiffTab,
   ResolvedFileTab,
-} from '@renderer/features/tasks/stores/tab-manager-store';
-import { useProvisionedTask, useTaskViewContext } from '@renderer/features/tasks/task-view-context';
+} from '@renderer/features/tasks/tabs/tab-manager-store';
+import {
+  useTaskViewContext,
+  useWorkspaceViewModel,
+} from '@renderer/features/tasks/task-view-context';
 import AgentLogo from '@renderer/lib/components/agent-logo';
 import { FileIcon } from '@renderer/lib/editor/file-icon';
 import { useDelayedBoolean } from '@renderer/lib/hooks/use-delay-boolean';
+import { useTabShortcuts } from '@renderer/lib/hooks/useTabShortcuts';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
-import { useModelStatus } from '@renderer/lib/monaco/use-model';
+import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
+import { Button } from '@renderer/lib/ui/button';
 import { Separator } from '@renderer/lib/ui/separator';
+import { ShortcutHint } from '@renderer/lib/ui/shortcut-hint';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { agentConfig } from '@renderer/utils/agentConfig';
 import { cn } from '@renderer/utils/utils';
 import { AgentStatusIndicator } from '../components/agent-status-indicator';
-
-// ---------------------------------------------------------------------------
-// Sortable wrapper — gives any tab item drag-and-drop behaviour
-// ---------------------------------------------------------------------------
 
 function SortableTabWrapper({ id, children }: { id: string; children: React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -57,10 +60,6 @@ function SortableTabWrapper({ id, children }: { id: string; children: React.Reac
   );
 }
 
-// ---------------------------------------------------------------------------
-// Conversation tab item
-// ---------------------------------------------------------------------------
-
 const ConversationTabItem = observer(function ConversationTabItem({
   tab,
   onSelect,
@@ -81,7 +80,7 @@ const ConversationTabItem = observer(function ConversationTabItem({
         onClick={onSelect}
         onDoubleClick={onPin}
         title={tab.isPreview ? `${title} (preview — double-click to keep)` : title}
-        data-tabid={tab.id}
+        data-tabid={tab.tabId}
         className={cn(
           'group relative flex h-full flex-col bg-background-secondary text-sm text-foreground-muted hover:bg-background-secondary-1/40',
           tab.isActive &&
@@ -89,13 +88,15 @@ const ConversationTabItem = observer(function ConversationTabItem({
         )}
       >
         <div className="flex h-full items-center gap-1.5 pl-3 pr-1">
-          <AgentLogo
-            logo={config.logo}
-            alt={config.alt}
-            isSvg={config.isSvg}
-            invertInDark={config.invertInDark}
-            className="size-4 shrink-0"
-          />
+          {config ? (
+            <AgentLogo
+              logo={config.logo}
+              alt={config.alt}
+              isSvg={config.isSvg}
+              invertInDark={config.invertInDark}
+              className="size-4 shrink-0"
+            />
+          ) : null}
           <span className={cn('max-w-24 truncate p-1', tab.isPreview && 'italic')}>{title}</span>
           <div className="relative flex size-5 shrink-0 items-center justify-center">
             <span className="transition-opacity group-hover:opacity-0">
@@ -119,9 +120,17 @@ const ConversationTabItem = observer(function ConversationTabItem({
   );
 });
 
-// ---------------------------------------------------------------------------
-// File tab item
-// ---------------------------------------------------------------------------
+function fileTabErrorTooltip(diskStatus: string, diskUri: string): string | undefined {
+  if (diskStatus === 'error') return 'File not found';
+  if (diskStatus === 'too-large') {
+    const bytes = modelRegistry.modelTotalSizes.get(diskUri);
+    if (bytes == null) return 'File too large to display';
+    if (bytes < 1024) return `File too large to display (${bytes} B)`;
+    if (bytes < 1024 * 1024) return `File too large to display (${(bytes / 1024).toFixed(1)} KB)`;
+    return `File too large to display (${(bytes / (1024 * 1024)).toFixed(1)} MB)`;
+  }
+  return undefined;
+}
 
 const FileTabItem = observer(function FileTabItem({
   tab,
@@ -140,15 +149,22 @@ const FileTabItem = observer(function FileTabItem({
     tab.path.endsWith('.svg') ||
     !tab.path.includes('.') ||
     /\.(ts|tsx|js|jsx|json|css|html|py|go|rs|sh|yml|yaml|toml|txt)$/.test(tab.path);
-  const modelStatus = useModelStatus(tab.bufferUri);
-  const showSpinner = useDelayedBoolean(isMonacoFile && modelStatus === 'loading', 200);
+
+  const diskUri = modelRegistry.toDiskUri(tab.bufferUri);
+  const diskStatus = modelRegistry.modelStatus.get(diskUri) ?? 'loading';
+  const hasFileIssue = diskStatus === 'error' || diskStatus === 'too-large';
+  const showSpinner = useDelayedBoolean(isMonacoFile && diskStatus === 'loading', 200);
+
+  const errorTooltip = hasFileIssue ? fileTabErrorTooltip(diskStatus, diskUri) : undefined;
+  const baseTitle = tab.isPreview ? `${tab.path} (preview — double-click to keep)` : tab.path;
+  const tabTitle = errorTooltip ? `${tab.path} — ${errorTooltip}` : baseTitle;
 
   return (
     <>
       <button
         onClick={onSelect}
         onDoubleClick={onPin}
-        title={tab.isPreview ? `${tab.path} (preview — double-click to keep)` : tab.path}
+        title={tabTitle}
         data-tabid={tab.tabId}
         className={cn(
           'group relative flex h-full flex-col bg-background-secondary text-sm hover:bg-muted',
@@ -163,7 +179,13 @@ const FileTabItem = observer(function FileTabItem({
               <FileIcon filename={fileName} />
             )}
           </span>
-          <span className={cn('max-w-[200px] truncate p-1 text-sm', tab.isPreview && 'italic')}>
+          <span
+            className={cn(
+              'max-w-[200px] truncate p-1 text-sm',
+              tab.isPreview && 'italic',
+              hasFileIssue && 'text-foreground-destructive'
+            )}
+          >
             {fileName}
           </span>
           <div className="relative flex size-5 shrink-0 items-center justify-center">
@@ -190,10 +212,6 @@ const FileTabItem = observer(function FileTabItem({
     </>
   );
 });
-
-// ---------------------------------------------------------------------------
-// Diff tab item
-// ---------------------------------------------------------------------------
 
 function diffGroupSuffix(diffGroup: ResolvedDiffTab['diffGroup']): string {
   switch (diffGroup) {
@@ -270,18 +288,17 @@ const DiffTabItem = observer(function DiffTabItem({
   );
 });
 
-// ---------------------------------------------------------------------------
-// Main unified tab bar
-// ---------------------------------------------------------------------------
-
 export const UnifiedMainTabBar = observer(function UnifiedMainTabBar() {
-  const { taskView } = useProvisionedTask();
-  const { projectId, taskId } = useTaskViewContext();
+  const taskView = useWorkspaceViewModel();
+  const { projectId, taskId, workspaceId } = useTaskViewContext();
   const { tabManager } = taskView;
   const showCommandPalette = useShowModal('commandPaletteModal');
+  const showCreateConversationModal = useShowModal('createConversationModal');
+
+  useTabShortcuts(tabManager, { focused: taskView.focusedRegion === 'main' });
 
   const resolvedTabs = tabManager.resolvedTabs;
-  const tabIds = resolvedTabs.map((t) => (t.kind === 'conversation' ? t.id : t.tabId));
+  const tabIds = resolvedTabs.map((t) => t.tabId);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -314,12 +331,12 @@ export const UnifiedMainTabBar = observer(function UnifiedMainTabBar() {
             {resolvedTabs.map((tab) => {
               if (tab.kind === 'conversation') {
                 return (
-                  <SortableTabWrapper key={tab.id} id={tab.id}>
+                  <SortableTabWrapper key={tab.tabId} id={tab.tabId}>
                     <ConversationTabItem
                       tab={tab}
-                      onSelect={() => tabManager.setActiveTab(tab.id)}
-                      onPin={() => tabManager.openConversation(tab.id)}
-                      onClose={() => tabManager.closeTab(tab.id)}
+                      onSelect={() => tabManager.setActiveTab(tab.tabId)}
+                      onPin={() => tabManager.openConversation(tab.conversationId)}
+                      onClose={() => tabManager.closeTab(tab.tabId)}
                     />
                   </SortableTabWrapper>
                 );
@@ -342,7 +359,7 @@ export const UnifiedMainTabBar = observer(function UnifiedMainTabBar() {
                     tab={tab}
                     onSelect={() => tabManager.setActiveTab(tab.tabId)}
                     onPin={() => tabManager.pinTab(tab.tabId)}
-                    onClose={() => tabManager.closeTab(tab.tabId)}
+                    onClose={() => tabManager.closeTabWithGuard(tab.tabId)}
                   />
                 </SortableTabWrapper>
               );
@@ -350,13 +367,42 @@ export const UnifiedMainTabBar = observer(function UnifiedMainTabBar() {
           </div>
         </SortableContext>
       </DndContext>
-      <button
-        onClick={() => showCommandPalette({ projectId, taskId })}
-        className="flex h-full shrink-0 items-center justify-center px-2 text-foreground-muted hover:text-foreground hover:bg-background-secondary-1/40"
-        aria-label="Open command palette"
-      >
-        <Plus className="size-4" />
-      </button>
+      <div className="flex h-full shrink-0 items-center px-1">
+        <Tooltip>
+          <TooltipTrigger>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              onClick={() =>
+                showCreateConversationModal({
+                  projectId,
+                  taskId,
+                  onSuccess: ({ conversationId }) => tabManager.openConversation(conversationId),
+                })
+              }
+              aria-label="New conversation"
+              title="New conversation"
+            >
+              <MessageSquarePlus className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            New Conversations <ShortcutHint settingsKey="newConversation" />
+          </TooltipContent>
+        </Tooltip>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          onClick={() =>
+            showCommandPalette({ projectId, taskId, workspaceId: workspaceId ?? undefined })
+          }
+          className="flex h-full items-center justify-center px-2 text-foreground-muted hover:text-foreground hover:bg-background-secondary-1/40"
+          aria-label="Open files"
+          title="Open files"
+        >
+          <FileSearch className="size-4" />
+        </Button>
+      </div>
     </div>
   );
 });

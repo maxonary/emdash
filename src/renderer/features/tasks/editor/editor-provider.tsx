@@ -2,7 +2,7 @@ import { autorun, reaction } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import type * as monacoNS from 'monaco-editor';
 import { createContext, useCallback, useContext, useEffect, useRef, type ReactNode } from 'react';
-import { useProvisionedTask } from '@renderer/features/tasks/task-view-context';
+import { useWorkspaceViewModel } from '@renderer/features/tasks/task-view-context';
 import { registerActiveCodeEditor } from '@renderer/lib/editor/activeCodeEditor';
 import { useTheme } from '@renderer/lib/hooks/useTheme';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
@@ -13,7 +13,6 @@ import {
 } from '@renderer/lib/monaco/monaco-config';
 import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
 import { defineMonacoThemes, getMonacoTheme } from '@renderer/lib/monaco/monaco-themes';
-import { buildMonacoModelPath } from '@renderer/lib/monaco/monacoModelPath';
 import { useMonacoLease } from '@renderer/lib/monaco/use-monaco-lease';
 import { useIsActiveTask } from '../hooks/use-is-active-task';
 
@@ -48,8 +47,8 @@ export const EditorProvider = observer(function EditorProvider({
   taskId: string;
   projectId: string;
 }) {
-  const provisionedTask = useProvisionedTask();
-  const { editorView, tabManager } = provisionedTask.taskView;
+  const taskView = useWorkspaceViewModel();
+  const { editorView, tabManager } = taskView;
   const { effectiveTheme } = useTheme();
   const isActive = useIsActiveTask(taskId);
 
@@ -109,14 +108,14 @@ export const EditorProvider = observer(function EditorProvider({
                 if (path) void editorView.saveFile(path);
               },
               onSaveAll: () => {
-                void editorView.saveAllFiles(tabManager.openFilePaths);
+                void editorView.saveAllFiles();
               },
             });
           }
 
           lease.disposables.push(
             lease.editor.onDidFocusEditorWidget(() => {
-              provisionedTask.taskView.setFocusedRegion('main');
+              taskView.setFocusedRegion('main');
             })
           );
 
@@ -137,23 +136,16 @@ export const EditorProvider = observer(function EditorProvider({
   );
 
   // ---------------------------------------------------------------------------
-  // Model attachment — single autorun that re-evaluates whenever any of the
-  // three inputs changes: lease, activeFilePath, or modelStatus.
-  // Replaces the reaction+onceBufferReady pattern and the restore-effect
-  // onceBufferReady. Covers: initial mount, remount, tab switching, and the
-  // async model-registration race on first file open.
+  // Model attachment — single autorun that re-evaluates whenever the lease,
+  // active file, or model registration status changes.
   // ---------------------------------------------------------------------------
   useEffect(
     () =>
       autorun(() => {
         const lease = leaseBox.get(); // reactive
-        const activePath = tabManager.activeFilePath; // reactive
+        const newBufUri = editorView.activeBufferUri; // reactive (derived from active file entry)
 
         if (!lease) return;
-
-        const newBufUri = activePath
-          ? buildMonacoModelPath(editorView.modelRootPath, activePath)
-          : null;
 
         if (!newBufUri) {
           lease.editor.setModel(null);
@@ -173,7 +165,7 @@ export const EditorProvider = observer(function EditorProvider({
 
   // ---------------------------------------------------------------------------
   // Restore — re-apply crash-recovery buffer content for persisted open tabs.
-  // Model registration is handled reactively by TaskViewStore (fireImmediately).
+  // Model registration is handled reactively by FileModelLifecycleStore.
   // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!taskId) return;
@@ -191,8 +183,7 @@ export const EditorProvider = observer(function EditorProvider({
         (uri) => {
           if (!uri) return;
           const filePath = uri.replace(`file://${editorView.modelRootPath}/`, '');
-          const tab = tabManager.tabs.find((t) => t.kind === 'file' && t.path === filePath);
-          if (!tab) return;
+          if (!editorView.openFilePaths.includes(filePath)) return;
           showConflictModal({
             filePath,
             onSuccess: (accept) => {
@@ -210,7 +201,7 @@ export const EditorProvider = observer(function EditorProvider({
   // focus Monaco if an editable model is loaded; otherwise queue the intent so
   // it is satisfied once the lease arrives (handled in the lease reaction above).
   // ---------------------------------------------------------------------------
-  const focusedRegion = provisionedTask.taskView.focusedRegion;
+  const focusedRegion = taskView.focusedRegion;
   useEffect(() => {
     if (!isActive || focusedRegion !== 'main') return;
     const editor = editorRef.current;
