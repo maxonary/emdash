@@ -128,6 +128,7 @@ export const tasks = sqliteTable(
     workspaceProvider: text('workspace_provider'), // @deprecated — superseded by workspaces.type; still read in resolveBootstrap for legacy BYOI tasks
     workspaceId: text('workspace_id'),
     workspaceProviderData: text('workspace_provider_data'), // @deprecated — superseded by workspaces.data
+    autoCreatePr: integer('auto_create_pr').notNull().default(0), // boolean, 0=false, 1=true
   },
   (table) => ({
     projectIdIdx: index('idx_tasks_project_id').on(table.projectId),

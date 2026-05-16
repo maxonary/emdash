@@ -26,5 +26,6 @@ export function mapTaskRowToTask(
     statusChangedAt: row.statusChangedAt,
     isPinned: row.isPinned === 1,
     workspaceId: row.workspaceId ?? undefined,
+    autoCreatePr: row.autoCreatePr === 1,
   };
 }

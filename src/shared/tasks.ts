@@ -38,6 +38,7 @@ export type Task = {
   conversations: Record<string, number>;
   workspaceGit?: { linesAdded: number; linesDeleted: number };
   workspaceId?: string;
+  autoCreatePr?: boolean;
 };
 
 export type TaskBootstrapStatus =
@@ -75,6 +76,8 @@ export type CreateTaskParams = {
   initialConversation?: CreateConversationParams;
   initialStatus?: TaskLifecycleStatus;
   workspaceProvider?: 'byoi';
+  /** When true, the main process creates a draft PR after the initial agent session exits cleanly. GitHub-only. */
+  autoCreatePr?: boolean;
 };
 
 export type CreateTaskError =
